@@ -70,12 +70,12 @@ class Database
     {
         $setParts = [];
         foreach (array_keys($data) as $column) {
-            $setParts[] = "{$column} = :{$column}";
+            $setParts[] = "{$column} = ?";
         }
         $setClause = implode(', ', $setParts);
         
         $sql = "UPDATE {$table} SET {$setClause} WHERE {$where}";
-        $stmt = self::query($sql, array_merge($data, $whereParams));
+        $stmt = self::query($sql, array_merge(array_values($data), $whereParams));
         
         return $stmt->rowCount();
     }

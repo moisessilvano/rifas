@@ -226,6 +226,29 @@ ob_start();
                     </div>
                 </div>
 
+                <!-- Legenda -->
+                <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 mb-4">
+                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Legenda</h3>
+                    <div class="flex flex-wrap gap-4 text-xs">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-6 h-6 bg-white border border-gray-300 rounded text-gray-700 flex items-center justify-center">•</div>
+                            <span class="text-gray-600 dark:text-gray-400">Disponível</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-6 h-6 bg-primary-100 border border-primary-300 rounded text-primary-800 flex items-center justify-center font-bold">•</div>
+                            <span class="text-gray-600 dark:text-gray-400">Selecionado</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-6 h-6 bg-yellow-100 border border-yellow-400 rounded text-yellow-800 opacity-75 line-through flex items-center justify-center">•</div>
+                            <span class="text-gray-600 dark:text-gray-400">Reservado</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-6 h-6 bg-green-100 border border-green-400 rounded text-green-800 opacity-75 line-through font-bold flex items-center justify-center">•</div>
+                            <span class="text-gray-600 dark:text-gray-400">Pago</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Grid de Números com Scroll -->
                 <div class="border rounded-lg overflow-hidden" style="max-height: 400px; overflow-y: auto;">
                     <div class="grid grid-cols-10 gap-1 p-4" id="numbers-grid">
@@ -264,9 +287,7 @@ ob_start();
                     </p>
 
                     <!-- Formulário de Reserva -->
-                    <form @submit.prevent="submitReservation" class="space-y-4">
-                        <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
-                        
+                    <div class="space-y-4">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label for="customer_name" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -299,20 +320,26 @@ ob_start();
                                         Total: R$ <span x-text="formatCurrency(totalAmount)"></span>
                                     </p>
                                 </div>
-                                <button type="submit"
-                                        :disabled="selectedNumbers.length === 0 || isSubmitting"
+                                <button type="button"
+                                        @click="showConfirmModal()"
+                                        :disabled="selectedNumbers.length === 0 || !formData.customer_name || !formData.customer_email"
                                         class="px-6 py-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-400 text-white rounded-lg transition-colors">
-                                    <span x-show="!isSubmitting">
-                                        <i class="fas fa-shopping-cart mr-2"></i>
-                                        Reservar Números
-                                    </span>
-                                    <span x-show="isSubmitting">
-                                        <i class="fas fa-spinner fa-spin mr-2"></i>
-                                        Processando...
-                                    </span>
+                                    <i class="fas fa-shopping-cart mr-2"></i>
+                                    Reservar Números
                                 </button>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Formulário oculto para envio -->
+                    <form x-ref="reservationForm" action="/raffles/<?= $raffle['id'] ?>/reserve" method="POST" style="display: none;">
+                        <input type="hidden" name="csrf_token" value="<?= $csrf_token ?>">
+                        <input type="hidden" name="customer_name" x-bind:value="formData.customer_name">
+                        <input type="hidden" name="customer_email" x-bind:value="formData.customer_email">
+                        <input type="hidden" name="confirmed" value="1">
+                        <template x-for="number in selectedNumbers" :key="number">
+                            <input type="hidden" name="numbers[]" x-bind:value="number">
+                        </template>
                     </form>
                 </div>
             </div>
@@ -360,22 +387,28 @@ function raffleApp() {
 
         getButtonClass(number) {
             if (this.isSelected(number.number)) {
-                return 'bg-primary-100 border-primary-300 text-primary-800 ring-2 ring-primary-300';
+                return 'bg-primary-100 border-primary-300 text-primary-800 ring-2 ring-primary-300 font-bold';
             }
             
             switch(number.status) {
                 case 'available':
-                    return 'bg-white hover:bg-primary-50 border-gray-300 cursor-pointer text-gray-700 hover:border-primary-300';
+                    return 'bg-white hover:bg-primary-50 border-gray-300 cursor-pointer text-gray-700 hover:border-primary-300 hover:shadow-md transition-all';
                 case 'reserved':
-                    return 'bg-yellow-100 border-yellow-300 cursor-not-allowed text-yellow-700';
+                    return 'bg-yellow-100 border-yellow-400 cursor-not-allowed text-yellow-800 opacity-75 line-through';
                 case 'paid':
-                    return 'bg-green-100 border-green-300 cursor-not-allowed text-green-700';
+                    return 'bg-green-100 border-green-400 cursor-not-allowed text-green-800 opacity-75 line-through font-bold';
                 default:
-                    return 'bg-gray-100 border-gray-300 cursor-not-allowed text-gray-500';
+                    return 'bg-gray-100 border-gray-300 cursor-not-allowed text-gray-500 opacity-50';
             }
         },
 
         toggleNumber(number) {
+            // Verificar se o número está disponível
+            const numberData = this.numbers.find(n => n.number === number);
+            if (numberData && numberData.status !== 'available') {
+                return; // Não permite selecionar números reservados ou pagos
+            }
+            
             const index = this.selectedNumbers.indexOf(number);
             if (index === -1) {
                 this.selectedNumbers.push(number);
@@ -438,33 +471,47 @@ function raffleApp() {
             this.isSubmitting = true;
             
             try {
-                const response = await fetch('/raffles/<?= $raffle['id'] ?>/reserve', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        csrf_token: document.querySelector('input[name="csrf_token"]').value,
-                        customer_name: this.formData.customer_name,
-                        customer_email: this.formData.customer_email,
-                        numbers: this.selectedNumbers
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Números Reservados!',
-                        text: 'Enviamos as instruções de pagamento para seu email.',
-                        confirmButtonText: 'Ok',
-                        confirmButtonColor: '#2563eb'
-                    }).then(() => {
-                        window.location.reload();
+                try {
+                    const response = await fetch('/raffles/<?= $raffle['id'] ?>/reserve', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            csrf_token: document.querySelector('input[name="csrf_token"]').value,
+                            customer_name: this.formData.customer_name,
+                            customer_email: this.formData.customer_email,
+                            numbers: this.selectedNumbers
+                        })
                     });
-                } else {
-                    throw new Error(data.message || 'Erro ao reservar números');
+                    
+                    let data;
+                    const contentType = response.headers.get('content-type');
+                    if (contentType && contentType.includes('application/json')) {
+                        data = await response.json();
+                    } else {
+                        throw new Error('Resposta inválida do servidor');
+                    }
+                    
+                    if (response.ok) {
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Números Reservados!',
+                            text: 'Enviamos as instruções de pagamento para seu email.',
+                            confirmButtonText: 'Ok',
+                            confirmButtonColor: '#2563eb'
+                        }).then(() => {
+                            window.location.reload();
+                        });
+                    } else {
+                        throw new Error(data.message || 'Erro ao reservar números');
+                    }
+                } catch (error) {
+                    if (error.name === 'SyntaxError') {
+                        error = new Error('Erro ao processar resposta do servidor');
+                    }
+                    throw error;
                 }
                 
             } catch (error) {
@@ -478,6 +525,78 @@ function raffleApp() {
             } finally {
                 this.isSubmitting = false;
             }
+        },
+
+        showConfirmModal() {
+            // Validações básicas
+            if (this.selectedNumbers.length === 0) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Selecione números',
+                    text: 'Por favor, selecione pelo menos um número.',
+                    confirmButtonText: 'Ok',
+                    confirmButtonColor: '#2563eb'
+                });
+                return;
+            }
+
+            if (!this.formData.customer_name || !this.formData.customer_email) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Dados obrigatórios',
+                    text: 'Por favor, preencha seu nome e email.',
+                    confirmButtonText: 'Ok',
+                    confirmButtonColor: '#2563eb'
+                });
+                return;
+            }
+
+            // Validar email
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(this.formData.customer_email)) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Email inválido',
+                    text: 'Por favor, digite um email válido.',
+                    confirmButtonText: 'Ok',
+                    confirmButtonColor: '#2563eb'
+                });
+                return;
+            }
+
+            // Mostrar modal de confirmação
+            const numbersText = this.selectedNumbers.sort((a, b) => a - b).join(', ');
+            const totalValue = this.formatCurrency(this.totalAmount);
+
+            Swal.fire({
+                title: 'Confirmar Reserva',
+                html: `
+                    <div class="text-left space-y-3">
+                        <div>
+                            <strong>Nome:</strong> ${this.formData.customer_name}
+                        </div>
+                        <div>
+                            <strong>Email:</strong> ${this.formData.customer_email}
+                        </div>
+                        <div>
+                            <strong>Números:</strong> ${numbersText}
+                        </div>
+                        <div class="border-t pt-3 mt-3">
+                            <strong>Total: R$ ${totalValue}</strong>
+                        </div>
+                    </div>
+                `,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sim, Reservar!',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#2563eb',
+                cancelButtonColor: '#6b7280'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    this.$refs.reservationForm.submit();
+                }
+            });
         }
     }
 }

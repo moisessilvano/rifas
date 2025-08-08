@@ -19,9 +19,24 @@ abstract class Controller
 
     protected function json(array $data, int $status = 200): void
     {
+        // Limpar qualquer saída anterior
+        if (ob_get_length()) ob_clean();
+        
         http_response_code($status);
         header('Content-Type: application/json');
-        echo json_encode($data);
+        header('X-Content-Type-Options: nosniff');
+        
+        $json = json_encode($data);
+        if ($json === false) {
+            // Se houver erro na codificação JSON, retorna erro genérico
+            $json = json_encode([
+                'success' => false,
+                'message' => 'Erro interno do servidor.'
+            ]);
+            http_response_code(500);
+        }
+        
+        echo $json;
         exit;
     }
 

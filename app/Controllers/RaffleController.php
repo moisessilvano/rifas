@@ -46,41 +46,82 @@ class RaffleController extends Controller
         ]);
     }
 
-    public function reserve(int $id): void
+    public function confirm(int $id): void
     {
-        // Debug: log dos dados recebidos
-        error_log('Reserve method called for raffle ID: ' . $id);
-        error_log('POST data: ' . print_r($_POST, true));
-        error_log('JSON input: ' . file_get_contents('php://input'));
-        
         if (!$this->validateCsrf()) {
-            error_log('CSRF validation failed');
-            error_log('Received token: ' . $this->getInput('csrf_token'));
-            error_log('Session token: ' . Session::get('csrf_token'));
-            $this->json(['success' => false, 'message' => 'Token de segurança inválido.'], 400);
+            Session::flash('error', 'Token de segurança inválido.');
+            $this->redirect("/raffles/{$id}");
         }
 
         $raffle = Raffle::findById($id);
         if (!$raffle || !$raffle['is_published']) {
-            $this->json(['success' => false, 'message' => 'Rifa não encontrada.'], 404);
+            Session::flash('error', 'Rifa não encontrada.');
+            $this->redirect('/');
         }
 
         $customerName = $this->sanitize($this->getInput('customer_name'));
         $customerEmail = $this->sanitize($this->getInput('customer_email'));
         $selectedNumbers = $this->getInput('numbers');
 
-        // Validações
+        // Validações básicas antes de mostrar a confirmação
         if (empty($customerName) || empty($customerEmail)) {
-            $this->json(['success' => false, 'message' => 'Nome e email são obrigatórios.'], 400);
+            Session::flash('error', 'Nome e email são obrigatórios.');
+            $this->redirect("/raffles/{$id}");
         }
 
         if (!$this->validateEmail($customerEmail)) {
-            $this->json(['success' => false, 'message' => 'Email inválido.'], 400);
+            Session::flash('error', 'Email inválido.');
+            $this->redirect("/raffles/{$id}");
         }
 
         if (empty($selectedNumbers) || !is_array($selectedNumbers)) {
-            $this->json(['success' => false, 'message' => 'Selecione pelo menos um número.'], 400);
+            Session::flash('error', 'Selecione pelo menos um número.');
+            $this->redirect("/raffles/{$id}");
         }
+
+        $this->view('raffles/confirm', [
+            'raffle' => $raffle,
+            'customer_name' => $customerName,
+            'customer_email' => $customerEmail,
+            'numbers' => $selectedNumbers,
+            'csrf_token' => $this->generateCsrf()
+        ]);
+    }
+
+    public function reserve(int $id): void
+    {
+        if (!$this->validateCsrf()) {
+            Session::flash('error', 'Token de segurança inválido.');
+            $this->redirect("/raffles/{$id}");
+        }
+
+        $raffle = Raffle::findById($id);
+        if (!$raffle || !$raffle['is_published']) {
+            Session::flash('error', 'Rifa não encontrada.');
+            $this->redirect('/');
+        }
+
+        $customerName = $this->sanitize($this->getInput('customer_name'));
+        $customerEmail = $this->sanitize($this->getInput('customer_email'));
+        $selectedNumbers = $this->getInput('numbers');
+
+        // Validações básicas antes de mostrar confirmação
+        if (empty($customerName) || empty($customerEmail)) {
+            Session::flash('error', 'Nome e email são obrigatórios.');
+            $this->redirect("/raffles/{$id}");
+        }
+
+        if (!$this->validateEmail($customerEmail)) {
+            Session::flash('error', 'Email inválido.');
+            $this->redirect("/raffles/{$id}");
+        }
+
+        if (empty($selectedNumbers) || !is_array($selectedNumbers)) {
+            Session::flash('error', 'Selecione pelo menos um número.');
+            $this->redirect("/raffles/{$id}");
+        }
+
+        // Processar reserva diretamente
 
         // Converter para inteiros e validar
         $numbers = array_map('intval', $selectedNumbers);
@@ -88,7 +129,8 @@ class RaffleController extends Controller
 
         foreach ($numbers as $number) {
             if ($number < 1 || $number > $raffle['total_numbers']) {
-                $this->json(['success' => false, 'message' => 'Número inválido selecionado.'], 400);
+                Session::flash('error', 'Número inválido selecionado.');
+                $this->redirect("/raffles/{$id}");
             }
         }
 
@@ -96,32 +138,40 @@ class RaffleController extends Controller
             $reservationId = Reservation::createReservation($id, $customerEmail, $customerName, $numbers);
             
             if (!$reservationId) {
-                $this->json(['success' => false, 'message' => 'Um ou mais números já foram reservados. Atualize a página e tente novamente.'], 400);
+                Session::flash('error', 'Um ou mais números já foram reservados. Atualize a página e tente novamente.');
+                $this->redirect("/raffles/{$id}");
             }
 
-            // Enviar email de confirmação
-            $reservation = Reservation::findById($reservationId);
-            $emailService = new EmailService();
-            $emailService->sendReservationConfirmation($reservation, $raffle);
+            // TODO: Enviar email de confirmação (desabilitado temporariamente)
+            // $reservation = Reservation::findById($reservationId);
+            // $emailService = new EmailService();
+            // $emailService->sendReservationConfirmation($reservation, $raffle);
 
-            // Notificar administradores
-            $emailService->sendAdminNotification(
-                'Nova Reserva - ' . $raffle['title'],
-                "Nova reserva recebida:\n" .
-                "Cliente: {$customerName} ({$customerEmail})\n" .
-                "Números: " . implode(', ', $numbers) . "\n" .
-                "Valor: R$ " . number_format($raffle['price_per_number'] * count($numbers), 2, ',', '.')
-            );
+            // TODO: Notificar administradores (desabilitado temporariamente)
+            // $emailService->sendAdminNotification(
+            //     'Nova Reserva - ' . $raffle['title'],
+            //     "Nova reserva recebida:\n" .
+            //     "Cliente: {$customerName} ({$customerEmail})\n" .
+            //     "Números: " . implode(', ', $numbers) . "\n" .
+            //     "Valor: R$ " . number_format($raffle['price_per_number'] * count($numbers), 2, ',', '.')
+            // );
 
-            $this->json([
-                'success' => true,
-                'message' => 'Números reservados com sucesso!',
-                'reservation_id' => $reservationId,
-                'total_amount' => $raffle['price_per_number'] * count($numbers)
-            ]);
+            Session::flash('success', 'Números reservados com sucesso! Sua reserva foi confirmada.');
+            $this->redirect("/raffles/{$id}");
 
         } catch (\Exception $e) {
-            $this->json(['success' => false, 'message' => 'Erro interno. Tente novamente.'], 500);
+            Session::flash('error', 'Erro interno. Tente novamente.');
+            $this->redirect("/raffles/{$id}");
         }
+    }
+
+    public function cancel(int $id): void
+    {
+        if (!$this->validateCsrf()) {
+            Session::flash('error', 'Token de segurança inválido.');
+            $this->redirect("/raffles/{$id}");
+        }
+
+        $this->redirect("/raffles/{$id}");
     }
 }

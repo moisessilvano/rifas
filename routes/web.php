@@ -38,7 +38,9 @@ $router->get('/admin/export/reservations', 'AdminController@exportReservations')
 // Rotas públicas - Rifas
 $router->get('/raffles', 'RaffleController@index');
 $router->get('/raffles/{id}', 'RaffleController@show');
+$router->post('/raffles/{id}/confirm', 'RaffleController@confirm');
 $router->post('/raffles/{id}/reserve', 'RaffleController@reserve');
+$router->post('/raffles/{id}/cancel', 'RaffleController@cancel');
 
 // Rotas de usuário logado
 $router->get('/profile', 'UserController@profile');
